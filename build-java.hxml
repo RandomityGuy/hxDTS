@@ -1,0 +1,19 @@
+-cp src
+math.Box3F
+math.PlaneF
+math.Point3F
+io.BytesReader
+Detail
+DtsAlloc
+DtsFile
+IflMaterial
+Mesh
+Node
+Object
+ObjectState
+Primitive
+Sequence
+ShapeFlags
+SubShape
+Trigger
+--java bin/java
