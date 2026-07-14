@@ -3,6 +3,7 @@ package;
 import io.BytesReader;
 
 @:expose
+@:publicFields
 class Trigger {
 	var state:Int;
 	var position:Float;
