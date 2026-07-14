@@ -44,6 +44,14 @@ class BytesWriter {
 		this.bytes.addFloat(f);
 	}
 
+	public function writeBytes(b:Bytes) {
+		this.bytes.add(b);
+	}
+
+	public function getLength() {
+		return this.bytes.length;
+	}
+
 	public function getBuffer() {
 		return bytes.getBytes();
 	}

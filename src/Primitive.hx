@@ -18,4 +18,10 @@ class Primitive {
 		p.matIndex = reader.readU32();
 		return p;
 	}
+
+	public function write(alloc:DtsWriteAlloc) {
+		alloc.writeU16(firstElement);
+		alloc.writeU16(numElements);
+		alloc.writeU32(matIndex);
+	}
 }

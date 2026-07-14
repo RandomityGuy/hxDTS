@@ -22,4 +22,12 @@ class Node {
 		node.nextSibling = reader.readU32();
 		return node;
 	}
+
+	public function write(alloc:DtsWriteAlloc) {
+		alloc.writeU32(name);
+		alloc.writeU32(parent);
+		alloc.writeU32(firstObject);
+		alloc.writeU32(firstChild);
+		alloc.writeU32(nextSibling);
+	}
 }

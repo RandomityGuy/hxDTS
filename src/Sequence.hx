@@ -1,6 +1,7 @@
 package;
 
 import io.BytesReader;
+import io.BytesWriter;
 
 @:expose
 @:publicFields
@@ -27,6 +28,10 @@ class Sequence {
 	var matFrameMatters:Array<Int>;
 	var decalMatters:Array<Int>;
 	var iflMatters:Array<Int>;
+
+	// The leading word of each bit set (read order); the exporter doesn't
+	// always store numWords there, so keep it verbatim for writing.
+	var bitSetDummies:Array<Int>;
 
 	var priority:Int;
 	var flags:Int;
@@ -82,6 +87,7 @@ class Sequence {
 		this.numTriggers = reader.readInt32();
 		this.toolBegin = reader.readInt32();
 
+		bitSetDummies = [];
 		rotationMatters = readBitSet(reader);
 		translationMatters = readBitSet(reader);
 		scaleMatters = readBitSet(reader);
@@ -98,10 +104,52 @@ class Sequence {
 	function readBitSet(reader:BytesReader) {
 		var dummy = reader.readInt32();
 		var numWords = reader.readInt32();
+		bitSetDummies.push(dummy);
 		var ret = [];
 		for (i in 0...numWords) {
 			ret.push(reader.readInt32());
 		}
 		return ret;
+	}
+
+	// Always writes the modern (version >= 22) layout, which is what we export.
+	public function write(writer:BytesWriter, writeNameIndex:Bool) {
+		if (writeNameIndex) {
+			writer.writeInt32(this.nameIndex);
+		}
+		writer.writeInt32(this.flags);
+		writer.writeInt32(this.numKeyFrames);
+		writer.writeFloat(this.duration);
+		writer.writeInt32(this.priority);
+		writer.writeInt32(this.firstGroundFrame);
+		writer.writeInt32(this.numGroundFrames);
+		writer.writeInt32(this.baseRotation);
+		writer.writeInt32(this.baseTranslation);
+		writer.writeInt32(this.baseScale);
+		writer.writeInt32(this.baseObjectState);
+		writer.writeInt32(this.baseDecalState);
+		writer.writeInt32(this.firstTrigger);
+		writer.writeInt32(this.numTriggers);
+		writer.writeInt32(Std.int(this.toolBegin)); // read as a raw int32, so written back as one
+
+		writeBitSet(writer, 0, rotationMatters);
+		writeBitSet(writer, 1, translationMatters);
+		writeBitSet(writer, 2, scaleMatters);
+		writeBitSet(writer, 3, decalMatters);
+		writeBitSet(writer, 4, iflMatters);
+		writeBitSet(writer, 5, visMatters);
+		writeBitSet(writer, 6, frameMatters);
+		writeBitSet(writer, 7, matFrameMatters);
+	}
+
+	function writeBitSet(writer:BytesWriter, index:Int, words:Array<Int>) {
+		// Preserve the exporter's leading word if we have it, else fall back to
+		// the word count (matches the reference exporter's behaviour).
+		var dummy = (bitSetDummies != null && index < bitSetDummies.length) ? bitSetDummies[index] : words.length;
+		writer.writeInt32(dummy);
+		writer.writeInt32(words.length);
+		for (word in words) {
+			writer.writeInt32(word);
+		}
 	}
 }

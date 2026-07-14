@@ -3,6 +3,7 @@ package;
 import haxe.io.Bytes;
 import haxe.Exception;
 import io.BytesReader;
+import io.BytesWriter;
 import math.QuatF;
 import math.Box3F;
 import math.Point3F;
@@ -839,5 +840,455 @@ class DtsFile {
 		}
 
 		return true;
+	}
+
+	// Counterpart to assembleShape: serialise the shape back into DTS bytes.
+	// Each struct writes itself through DtsWriteAlloc, mirroring its read().
+	public function write(?dtsVersion:Int):Bytes {
+		if (dtsVersion == null)
+			dtsVersion = this.fileVersion;
+
+		if (dtsVersion < 19)
+			return writeOldShape(dtsVersion);
+
+		var alloc = new DtsWriteAlloc();
+
+		// counts...
+		alloc.writeU32(nodes.length);
+		alloc.writeU32(objects.length);
+		alloc.writeU32(0); // decals (not modelled)
+		alloc.writeU32(subshapes.length);
+		alloc.writeU32(mats.length);
+
+		if (dtsVersion < 22) {
+			alloc.writeU32(nodeRotations.length + nodes.length);
+		} else {
+			alloc.writeU32(nodeRotations.length);
+			alloc.writeU32(nodeTranslations.length);
+			alloc.writeU32(nodeUniformScales.length);
+			alloc.writeU32(nodeAlignedScales.length);
+			alloc.writeU32(nodeArbitraryScaleFactors.length);
+		}
+
+		if (dtsVersion > 23)
+			alloc.writeU32(groundTranslations.length);
+
+		alloc.writeU32(objectStates.length);
+		alloc.writeU32(decalStates.length);
+		alloc.writeU32(triggers.length);
+		alloc.writeU32(detailLevels.length);
+		alloc.writeU32(meshes.length);
+
+		if (dtsVersion < 23)
+			alloc.writeU32(0); // skins
+
+		alloc.writeU32(names.length);
+		alloc.writeF32(smallestVisibleSize);
+		alloc.writeU32(Std.int(smallestVisibleDL));
+		alloc.guard();
+
+		// bounds...
+		alloc.writeF32(radius);
+		alloc.writeF32(radiusTube);
+		alloc.writePoint3F(center);
+		alloc.writeBoxF(bounds);
+		alloc.guard();
+
+		// nodes...
+		for (node in nodes)
+			node.write(alloc);
+		alloc.guard();
+
+		// objects...
+		for (object in objects)
+			object.write(alloc);
+		alloc.guard();
+
+		// decals (none)...
+		alloc.guard();
+
+		// ifl materials...
+		for (ifl in mats)
+			ifl.write(alloc);
+		alloc.guard();
+
+		// subshapes...
+		for (s in subshapes)
+			alloc.writeU32(s.firstNode);
+		for (s in subshapes)
+			alloc.writeU32(s.firstObject);
+		for (s in subshapes)
+			alloc.writeU32(s.firstDecal);
+		alloc.guard();
+		for (s in subshapes)
+			alloc.writeU32(s.numNodes);
+		for (s in subshapes)
+			alloc.writeU32(s.numObjects);
+		for (s in subshapes)
+			alloc.writeU32(s.numDecals);
+		alloc.guard();
+
+		// default rotations & translations...
+		for (i in 0...nodes.length) {
+			alloc.writeQuat16(defaultRotations[i]);
+			alloc.writePoint3F(defaultTranslations[i]);
+		}
+
+		// animation translations & rotations...
+		for (p in nodeTranslations)
+			alloc.writePoint3F(p);
+		for (q in nodeRotations)
+			alloc.writeQuat16(q);
+		alloc.guard();
+
+		// ...with scale
+		if (dtsVersion > 21) {
+			for (f in nodeUniformScales)
+				alloc.writeF32(f);
+			for (p in nodeAlignedScales)
+				alloc.writePoint3F(p);
+			for (p in nodeArbitraryScaleFactors)
+				alloc.writePoint3F(p);
+			for (q in nodeArbitraryScaleRots)
+				alloc.writeQuat16(q);
+			alloc.guard();
+		}
+
+		// ground transforms...
+		if (dtsVersion > 23) {
+			for (p in groundTranslations)
+				alloc.writePoint3F(p);
+			for (q in groundRots)
+				alloc.writeQuat16(q);
+			alloc.guard();
+		}
+
+		// object states...
+		for (state in objectStates)
+			state.write(alloc);
+		alloc.guard();
+
+		// decal states...
+		for (d in decalStates)
+			alloc.writeU32(d);
+		alloc.guard();
+
+		// triggers...
+		for (trigger in triggers)
+			trigger.write(alloc);
+		alloc.guard();
+
+		// details...
+		for (detail in detailLevels)
+			detail.write(alloc);
+		alloc.guard();
+
+		// meshes...
+		for (mesh in meshes) {
+			if (mesh == null)
+				alloc.writeS32(4); // NullType, no body follows
+			else
+				mesh.write(alloc, dtsVersion);
+		}
+		alloc.guard();
+
+		// names...
+		for (name in names)
+			alloc.writeString(name);
+		alloc.guard();
+
+		// per-detail alpha (v26+)...
+		if (dtsVersion >= 26) {
+			for (a in alphaIn)
+				alloc.writeU32(a);
+			for (a in alphaOut)
+				alloc.writeU32(a);
+		}
+
+		var out = new BytesWriter();
+
+		// header + the three buffers
+		alloc.flush(out, dtsVersion, exporterVersion);
+
+		// sequences
+		out.writeInt32(sequences.length);
+		for (seq in sequences)
+			seq.write(out, true);
+
+		// material list
+		writeMaterialList(out, dtsVersion);
+
+		return out.getBuffer();
+	}
+
+	function writeMaterialList(out:BytesWriter, version:Int) {
+		out.writeByte(0x1); // material stream type
+		out.writeInt32(matNames.length);
+		for (name in matNames) {
+			out.writeByte(name.length);
+			for (i in 0...name.length)
+				out.writeByte(name.charCodeAt(i) & 0xFF);
+		}
+		for (v in matFlags)
+			out.writeInt32(v);
+		for (v in matReflectanceMaps)
+			out.writeInt32(v);
+		for (v in matBumpMaps)
+			out.writeInt32(v);
+		for (v in matDetailMaps)
+			out.writeInt32(v);
+		if (version == 25)
+			for (i in 0...matNames.length)
+				out.writeInt32(0);
+		for (v in matDetailScales)
+			out.writeFloat(v);
+		for (v in matReflectionAmounts)
+			out.writeFloat(v);
+	}
+
+	// ---------------------------------------------------------------------
+	// Old (< v19) shape writing. The old on-disk format is a linear stream
+	// (the tri-buffer is only an intermediate used while reading), so this is
+	// a direct reversal of readOldShape.
+	// ---------------------------------------------------------------------
+
+	inline function oldVec3(out:BytesWriter, p:Point3F) {
+		out.writeFloat(p.x);
+		out.writeFloat(p.y);
+		out.writeFloat(p.z);
+	}
+
+	inline function oldQuat16(out:BytesWriter, q:QuatF) {
+		out.writeInt16(Std.int(q.x) & 0xFFFF);
+		out.writeInt16(Std.int(q.y) & 0xFFFF);
+		out.writeInt16(Std.int(q.z) & 0xFFFF);
+		out.writeInt16(Std.int(q.w) & 0xFFFF);
+	}
+
+	function writeOldShape(version:Int):Bytes {
+		var out = new BytesWriter();
+
+		out.writeInt16(version);
+		out.writeInt16(exporterVersion);
+
+		// bounds
+		out.writeFloat(radius);
+		out.writeFloat(radiusTube);
+		oldVec3(out, center);
+		oldVec3(out, new Point3F(bounds.minX, bounds.minY, bounds.minZ));
+		oldVec3(out, new Point3F(bounds.maxX, bounds.maxY, bounds.maxZ));
+
+		// nodes: name, parent
+		out.writeInt32(nodes.length);
+		for (n in nodes) {
+			out.writeInt32(n.name);
+			out.writeInt32(n.parent);
+		}
+
+		// objects: name, numMeshes, firstMesh, node
+		out.writeInt32(objects.length);
+		for (o in objects) {
+			out.writeInt32(o.name);
+			out.writeInt32(o.numMeshes);
+			out.writeInt32(o.firstMesh);
+			out.writeInt32(o.node);
+		}
+
+		// decals (not modelled)
+		out.writeInt32(0);
+
+		// ifl materials: name, slot
+		out.writeInt32(mats.length);
+		for (ifl in mats) {
+			out.writeInt32(ifl.name);
+			out.writeInt32(ifl.slot);
+		}
+
+		// subshapes: firstNode[], (count), firstObject[], (count), firstDecal[]
+		out.writeInt32(subshapes.length);
+		for (s in subshapes)
+			out.writeInt32(s.firstNode);
+		out.writeInt32(subshapes.length);
+		for (s in subshapes)
+			out.writeInt32(s.firstObject);
+		out.writeInt32(subshapes.length);
+		for (s in subshapes)
+			out.writeInt32(s.firstDecal);
+
+		// node states: defaults first, then animation. Each = quat16 + point3f
+		out.writeInt32(nodes.length + nodeRotations.length);
+		for (i in 0...nodes.length) {
+			oldQuat16(out, defaultRotations[i]);
+			oldVec3(out, defaultTranslations[i]);
+		}
+		for (i in 0...nodeRotations.length) {
+			oldQuat16(out, nodeRotations[i]);
+			oldVec3(out, nodeTranslations[i]);
+		}
+
+		// object states: vis, frame, matFrame
+		out.writeInt32(objectStates.length);
+		for (st in objectStates) {
+			out.writeFloat(st.vis);
+			out.writeInt32(st.frame);
+			out.writeInt32(st.matFrame);
+		}
+
+		// decal states
+		out.writeInt32(decalStates.length);
+		for (d in decalStates)
+			out.writeInt32(d);
+
+		// triggers: state, position (read as raw int32)
+		out.writeInt32(triggers.length);
+		for (t in triggers) {
+			out.writeInt32(t.state);
+			out.writeInt32(Std.int(t.position));
+		}
+
+		// details: name, subShape, objectDetail, size
+		out.writeInt32(detailLevels.length);
+		for (d in detailLevels) {
+			out.writeInt32(d.name);
+			out.writeInt32(d.subShape);
+			out.writeInt32(d.objectDetail);
+			out.writeFloat(d.size);
+		}
+
+		// sequences (old format)
+		out.writeInt32(sequences.length);
+		for (seq in sequences)
+			writeOldSequence(out, seq, version);
+
+		// meshes (old format)
+		out.writeInt32(meshes.length);
+		for (mesh in meshes)
+			writeOldMesh(out, mesh);
+
+		// names: length, chars (no null terminator on disk)
+		out.writeInt32(names.length);
+		for (name in names) {
+			out.writeInt32(name.length);
+			for (i in 0...name.length)
+				out.writeByte(name.charCodeAt(i) & 0xFF);
+		}
+
+		// material list
+		if (matNames != null) {
+			out.writeInt32(1); // gotList
+			writeMaterialList(out, version);
+		} else {
+			out.writeInt32(0);
+		}
+
+		// legacy skin count (skin data itself is not modelled)
+		out.writeInt32(0);
+
+		return out.getBuffer();
+	}
+
+	function writeOldMesh(out:BytesWriter, mesh:Mesh) {
+		if (mesh == null) {
+			out.writeInt32(4); // NullType
+			return;
+		}
+
+		out.writeInt32(mesh.meshType);
+
+		if (mesh.meshType == 4)
+			return;
+
+		out.writeInt32(mesh.numFrames);
+		out.writeInt32(mesh.numMatFrames);
+
+		out.writeInt32(mesh.vertices.length);
+		for (v in mesh.vertices)
+			oldVec3(out, v);
+
+		out.writeInt32(mesh.uv.length);
+		for (t in mesh.uv) {
+			out.writeFloat(t.x);
+			out.writeFloat(t.y);
+		}
+
+		out.writeInt32(mesh.normals.length);
+		for (n in mesh.normals)
+			oldVec3(out, n);
+
+		out.writeInt32(mesh.primitives.length);
+		for (p in mesh.primitives) {
+			out.writeInt16(p.firstElement & 0xFFFF);
+			out.writeInt16(p.numElements & 0xFFFF);
+			out.writeInt32(p.matIndex);
+		}
+
+		out.writeInt32(mesh.indices.length);
+		for (i in mesh.indices)
+			out.writeInt16(i & 0xFFFF);
+
+		out.writeInt32(mesh.vertsPerFrame);
+		out.writeInt32(mesh.type);
+
+		if (mesh.meshType == 1) {
+			// Skinned mesh extra data (old layout).
+			out.writeInt32(mesh.vertices.length);
+			for (v in mesh.vertices)
+				oldVec3(out, v);
+			out.writeInt32(mesh.normals.length);
+			for (n in mesh.normals)
+				oldVec3(out, n);
+
+			out.writeInt32(mesh.initialTransforms.length);
+			for (tr in mesh.initialTransforms)
+				for (f in tr)
+					out.writeFloat(f);
+
+			out.writeInt32(mesh.vertexIndices.length);
+			for (vi in mesh.vertexIndices)
+				out.writeInt32(vi);
+			out.writeInt32(mesh.boneIndices.length);
+			for (bi in mesh.boneIndices)
+				out.writeInt32(bi);
+			out.writeInt32(mesh.nodeIndices.length);
+			for (ni in mesh.nodeIndices)
+				out.writeInt32(ni);
+			out.writeInt32(mesh.weights.length);
+			for (w in mesh.weights)
+				out.writeFloat(w);
+		}
+	}
+
+	function writeOldSequence(out:BytesWriter, seq:Sequence, version:Int) {
+		out.writeInt32(seq.nameIndex);
+		out.writeInt32(seq.numKeyFrames);
+		out.writeFloat(seq.duration);
+		out.writeByte((seq.flags & ShapeFlags.Blend) != 0 ? 1 : 0);
+		out.writeByte((seq.flags & ShapeFlags.Cyclic) != 0 ? 1 : 0);
+		out.writeByte((seq.flags & ShapeFlags.MakePath) != 0 ? 1 : 0);
+		out.writeInt32(seq.priority);
+		out.writeInt32(seq.firstGroundFrame);
+		out.writeInt32(seq.numGroundFrames);
+		out.writeInt32(seq.baseRotation);
+		out.writeInt32(seq.baseObjectState);
+		out.writeInt32(seq.baseDecalState);
+		out.writeInt32(seq.firstTrigger);
+		out.writeInt32(seq.numTriggers);
+		out.writeInt32(Std.int(seq.toolBegin));
+
+		writeOldBitSet(out, seq.rotationMatters);
+		writeOldBitSet(out, seq.translationMatters);
+		writeOldBitSet(out, seq.scaleMatters);
+		writeOldBitSet(out, seq.decalMatters);
+		writeOldBitSet(out, seq.iflMatters);
+		writeOldBitSet(out, seq.visMatters);
+		writeOldBitSet(out, seq.frameMatters);
+		writeOldBitSet(out, seq.matFrameMatters);
+	}
+
+	function writeOldBitSet(out:BytesWriter, words:Array<Int>) {
+		out.writeInt32(words.length);
+		out.writeInt32(words.length);
+		for (word in words)
+			out.writeInt32(word);
 	}
 }

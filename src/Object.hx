@@ -24,4 +24,13 @@ class Object {
 		obj.firstDecal = reader.readU32();
 		return obj;
 	}
+
+	public function write(alloc:DtsWriteAlloc) {
+		alloc.writeU32(name);
+		alloc.writeU32(numMeshes);
+		alloc.writeU32(firstMesh);
+		alloc.writeU32(node);
+		alloc.writeU32(nextSibling);
+		alloc.writeU32(firstDecal);
+	}
 }

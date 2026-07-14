@@ -15,6 +15,11 @@ class Mesh {
 	var bounds:Box3F;
 	var center:Point3F;
 	var radius:Float;
+	// Declared vert/tvert counts from the file. For shared (parent >= 0) meshes
+	// the geometry itself isn't stored, but these counts still are - and they
+	// can differ from the parent's array length - so keep them for writing.
+	var numVerts:Int;
+	var numTVerts:Int;
 	var vertices:Array<Point3F>;
 	var uv:Array<Point2F>;
 	var normals:Array<Point3F>;
@@ -43,7 +48,7 @@ class Mesh {
 		center = reader.readPoint3F();
 		radius = reader.readF32();
 
-		var numVerts = reader.readU32();
+		numVerts = reader.readU32();
 		vertices = [];
 		if (this.parent < 0) {
 			for (i in 0...numVerts) {
@@ -53,10 +58,10 @@ class Mesh {
 			vertices = shape.meshes[this.parent].vertices;
 		}
 
-		var tVerts = reader.readU32();
+		numTVerts = reader.readU32();
 		uv = [];
 		if (this.parent < 0) {
-			for (i in 0...tVerts) {
+			for (i in 0...numTVerts) {
 				uv.push(reader.readPoint2F());
 			}
 		} else {
@@ -184,5 +189,98 @@ class Mesh {
 			throw new Exception("idk how to read this");
 
 		return mesh;
+	}
+
+	function writeStandard(alloc:DtsWriteAlloc, version:Int) {
+		alloc.guard();
+
+		alloc.writeU32(numFrames);
+		alloc.writeU32(numMatFrames);
+		alloc.writeS32(parent);
+		alloc.writeBoxF(bounds);
+		alloc.writePoint3F(center);
+		alloc.writeF32(radius);
+
+		// Child meshes share their parent's geometry: the declared counts are
+		// still written, but the data itself is omitted.
+		var shared = parent >= 0;
+
+		alloc.writeU32(numVerts);
+		if (!shared)
+			for (v in vertices)
+				alloc.writePoint3F(v);
+
+		alloc.writeU32(numTVerts);
+		if (!shared)
+			for (t in uv)
+				alloc.writePoint2F(t);
+
+		if (!shared)
+			for (n in normals)
+				alloc.writePoint3F(n);
+
+		if (!shared && version > 21)
+			for (i in 0...vertices.length)
+				alloc.writeU8(i < enormals.length ? enormals[i] : 0);
+
+		alloc.writeU32(primitives.length);
+		for (p in primitives)
+			p.write(alloc);
+
+		alloc.writeU32(indices.length);
+		for (i in indices)
+			alloc.writeS16(i);
+
+		alloc.writeU32(mindices.length);
+		for (i in mindices)
+			alloc.writeS16(i);
+
+		alloc.writeS32(vertsPerFrame);
+		alloc.writeS32(type);
+
+		alloc.guard();
+	}
+
+	function writeSkinned(alloc:DtsWriteAlloc, version:Int) {
+		writeStandard(alloc, version);
+
+		alloc.writeS32(vertices.length);
+		for (v in vertices)
+			alloc.writePoint3F(v);
+		for (n in normals)
+			alloc.writePoint3F(n);
+		for (i in 0...vertices.length)
+			alloc.writeU8(i < enormals.length ? enormals[i] : 0);
+
+		alloc.writeS32(initialTransforms.length);
+		for (tr in initialTransforms)
+			alloc.writeMatrixF(tr);
+
+		alloc.writeS32(vertexIndices.length);
+		for (vi in vertexIndices)
+			alloc.writeS32(vi);
+		for (bi in boneIndices)
+			alloc.writeS32(bi);
+		for (w in weights)
+			alloc.writeF32(w);
+
+		alloc.writeS32(nodeIndices.length);
+		for (ni in nodeIndices)
+			alloc.writeS32(ni);
+
+		alloc.guard();
+	}
+
+	public function write(alloc:DtsWriteAlloc, version:Int) {
+		// The dispatch word is the mesh-type enum; the trailing "type" field
+		// (flags) is written separately at the end of the standard body.
+		alloc.writeS32(meshType);
+
+		if (meshType == 0)
+			writeStandard(alloc, version);
+		else if (meshType == 1)
+			writeSkinned(alloc, version);
+		else
+			throw new Exception("idk how to write this");
 	}
 }

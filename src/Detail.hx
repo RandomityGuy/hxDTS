@@ -1,6 +1,7 @@
 package;
 
 @:expose
+@:publicFields
 class Detail {
 	var name:Int;
 	var subShape:Int;
@@ -22,5 +23,15 @@ class Detail {
 		d.maxError = reader.readF32();
 		d.polyCount = reader.readU32();
 		return d;
+	}
+
+	public function write(alloc:DtsWriteAlloc) {
+		alloc.writeU32(name);
+		alloc.writeU32(subShape);
+		alloc.writeU32(objectDetail);
+		alloc.writeF32(size);
+		alloc.writeF32(avgError);
+		alloc.writeF32(maxError);
+		alloc.writeU32(polyCount);
 	}
 }

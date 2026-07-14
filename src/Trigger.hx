@@ -16,4 +16,9 @@ class Trigger {
 		t.position = reader.readU32();
 		return t;
 	}
+
+	public function write(alloc:DtsWriteAlloc) {
+		alloc.writeU32(state);
+		alloc.writeU32(Std.int(position)); // read as a raw int32, so written back as one
+	}
 }
