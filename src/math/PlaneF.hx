@@ -1,5 +1,6 @@
 package math;
 
+import io.BytesWriter;
 import io.BytesReader;
 
 @:expose
@@ -72,5 +73,12 @@ class PlaneF {
 		ret.z = io.readFloat();
 		ret.d = io.readFloat();
 		return ret;
+	}
+
+	public function write(io:BytesWriter) {
+		io.writeFloat(this.x);
+		io.writeFloat(this.y);
+		io.writeFloat(this.z);
+		io.writeFloat(this.d);
 	}
 }

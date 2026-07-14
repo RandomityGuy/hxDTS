@@ -1,5 +1,6 @@
 package math;
 
+import io.BytesWriter;
 import io.BytesReader;
 
 @:expose

@@ -1,5 +1,6 @@
 package math;
 
+import io.BytesWriter;
 import io.BytesReader;
 
 @:expose
@@ -79,6 +80,12 @@ class Point3F {
 		ret.y = io.readFloat();
 		ret.z = io.readFloat();
 		return ret;
+	}
+
+	public function write(io:BytesWriter) {
+		io.writeFloat(this.x);
+		io.writeFloat(this.y);
+		io.writeFloat(this.z);
 	}
 
 	public function copy() {

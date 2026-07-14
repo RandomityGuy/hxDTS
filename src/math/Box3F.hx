@@ -1,5 +1,6 @@
 package math;
 
+import io.BytesWriter;
 import io.BytesReader;
 
 @:expose
@@ -20,8 +21,21 @@ class Box3F {
 		this.maxZ = maxZ;
 	}
 
+	public function clone() {
+		return new Box3F(this.minX, this.minY, this.minZ, this.maxX, this.maxY, this.maxZ);
+	}
+
 	public function center() {
 		return new Point3F(minX + maxX, minY + maxY, minZ + maxZ).scalarDiv(2);
+	}
+
+	public function extend(box:Box3F) {
+		this.minX = Math.min(this.minX, box.minX);
+		this.minY = Math.min(this.minY, box.minY);
+		this.minZ = Math.min(this.minZ, box.minZ);
+		this.maxX = Math.max(this.maxX, box.maxX);
+		this.maxY = Math.max(this.maxY, box.maxY);
+		this.maxZ = Math.max(this.maxZ, box.maxZ);
 	}
 
 	public function Expand(point:Point3F) {
@@ -90,5 +104,14 @@ class Box3F {
 		ret.maxY = io.readFloat();
 		ret.maxZ = io.readFloat();
 		return ret;
+	}
+
+	public function write(io:BytesWriter) {
+		io.writeFloat(this.minX);
+		io.writeFloat(this.minY);
+		io.writeFloat(this.minZ);
+		io.writeFloat(this.maxX);
+		io.writeFloat(this.maxY);
+		io.writeFloat(this.maxZ);
 	}
 }
