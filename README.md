@@ -1,6 +1,5 @@
 # hxDTS
 Never write a dts parser again.  
-Parser only.
 
 # Compilation
  
@@ -34,20 +33,23 @@ Requires hxtsdgen, get it using ```haxelib install hxtsdgen```
 ### C#
 ```
 var dts = new DtsFile();
-dts.load(byte[] bytes); // Load
+dts.read(byte[] bytes); // Load
+dts.write(int version); // Save
 ```
 
 ### JavaScript/TypeScript
 ```
-let dts = new DtsFile();
-dts.load(buffer: ArrayBuffer); // Load
+dts.read(buffer: ArrayBuffer); // Load
+dts.write(version: number): ArrayBuffer; // Save
 ```
 
 ### Python
 ```
 dts = DtsFile()
-dts.load(bytes: bytearray) // Load
+dts.read(bytes: bytearray) // Load
+dts.write(version: int) -> bytearray // Save
 ```
 
 ### Other Languages
-Use the load() method of DtsFile and pass the appropriate buffer object as given by https://api.haxe.org/haxe/io/BytesData.html
+Use the read() method of DtsFile and pass the appropriate buffer object as given by https://api.haxe.org/haxe/io/BytesData.html
+Use the write() method of DtsFile and pass the appropriate version number to get a buffer object as given by https://api.haxe.org/haxe/io/BytesData.html
