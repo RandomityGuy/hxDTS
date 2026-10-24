@@ -7,6 +7,19 @@ import math.Box3F;
 
 @:expose
 @:publicFields
+class TSSortedMeshCluster {
+	var startPrimitive:Int;
+	var endPrimitive:Int;
+	var normal:Point3F;
+	var k:Float;
+	var frontCluster:Int;
+	var backCluster:Int;
+
+	public function new() {}
+}
+
+@:expose
+@:publicFields
 class Mesh {
 	var meshType:Int;
 	var numFrames:Int;
@@ -15,11 +28,6 @@ class Mesh {
 	var bounds:Box3F;
 	var center:Point3F;
 	var radius:Float;
-	// Declared vert/tvert counts from the file. For shared (parent >= 0) meshes
-	// the geometry itself isn't stored, but these counts still are - and they
-	// can differ from the parent's array length - so keep them for writing.
-	var numVerts:Int;
-	var numTVerts:Int;
 	var vertices:Array<Point3F>;
 	var uv:Array<Point2F>;
 	var normals:Array<Point3F>;
@@ -36,6 +44,14 @@ class Mesh {
 	var weights:Array<Float>;
 	var nodeIndices:Array<Int>;
 
+	// TSSortedMesh
+	var clusters:Array<TSSortedMeshCluster>;
+	var startCluster:Array<Int>;
+	var firstVerts:Array<Int>;
+	var numVerts:Array<Int>;
+	var firstTVerts:Array<Int>;
+	var alwaysWriteDepth:Bool;
+
 	public function new() {}
 
 	function readStandard(reader:DtsAlloc, version:Int) {
@@ -48,7 +64,7 @@ class Mesh {
 		center = reader.readPoint3F();
 		radius = reader.readF32();
 
-		numVerts = reader.readU32();
+		var numVerts = reader.readU32();
 		vertices = [];
 		if (this.parent < 0) {
 			for (i in 0...numVerts) {
@@ -58,7 +74,7 @@ class Mesh {
 			vertices = shape.meshes[this.parent].vertices;
 		}
 
-		numTVerts = reader.readU32();
+		var numTVerts = reader.readU32();
 		uv = [];
 		if (this.parent < 0) {
 			for (i in 0...numTVerts) {
@@ -174,6 +190,52 @@ class Mesh {
 		reader.guard();
 	}
 
+	function readSorted(reader:DtsAlloc, version:Int) {
+		readStandard(reader, version);
+
+		var numClusters = reader.readS32();
+		clusters = [];
+		for (i in 0...numClusters) {
+			var cluster = new TSSortedMeshCluster();
+			cluster.startPrimitive = reader.readS32();
+			cluster.endPrimitive = reader.readS32();
+			cluster.normal = reader.readPoint3F();
+			cluster.k = reader.readF32();
+			cluster.frontCluster = reader.readS32();
+			cluster.backCluster = reader.readS32();
+			clusters.push(cluster);
+		}
+
+		var sz = reader.readS32();
+		startCluster = [];
+		for (i in 0...sz) {
+			startCluster.push(reader.readS32());
+		}
+
+		sz = reader.readS32();
+		firstVerts = [];
+		for (i in 0...sz) {
+			firstVerts.push(reader.readS32());
+		}
+
+		sz = reader.readS32();
+
+		numVerts = [];
+		for (i in 0...sz) {
+			numVerts.push(reader.readS32());
+		}
+
+		sz = reader.readS32();
+		firstTVerts = [];
+		for (i in 0...sz) {
+			firstTVerts.push(reader.readS32());
+		}
+
+		alwaysWriteDepth = reader.readS32() != 0;
+
+		reader.guard();
+	}
+
 	public static function read(shape:DtsFile, reader:DtsAlloc, version:Int) {
 		var mesh = new Mesh();
 		mesh.shape = shape;
@@ -183,6 +245,8 @@ class Mesh {
 			mesh.readStandard(reader, version);
 		else if (mesh.meshType == 1)
 			mesh.readSkinned(reader, version);
+		else if (mesh.meshType == 3)
+			mesh.readSorted(reader, version);
 		else if (mesh.meshType == 4)
 			return null;
 		else
@@ -205,12 +269,12 @@ class Mesh {
 		// still written, but the data itself is omitted.
 		var shared = parent >= 0;
 
-		alloc.writeU32(numVerts);
+		alloc.writeU32(vertices.length);
 		if (!shared)
 			for (v in vertices)
 				alloc.writePoint3F(v);
 
-		alloc.writeU32(numTVerts);
+		alloc.writeU32(uv.length);
 		if (!shared)
 			for (t in uv)
 				alloc.writePoint2F(t);
@@ -271,6 +335,40 @@ class Mesh {
 		alloc.guard();
 	}
 
+	function writeSorted(alloc:DtsWriteAlloc, version:Int) {
+		writeStandard(alloc, version);
+
+		alloc.writeS32(clusters.length);
+		for (c in clusters) {
+			alloc.writeS32(c.startPrimitive);
+			alloc.writeS32(c.endPrimitive);
+			alloc.writePoint3F(c.normal);
+			alloc.writeF32(c.k);
+			alloc.writeS32(c.frontCluster);
+			alloc.writeS32(c.backCluster);
+		}
+
+		alloc.writeS32(startCluster.length);
+		for (sc in startCluster)
+			alloc.writeS32(sc);
+
+		alloc.writeS32(firstVerts.length);
+		for (fv in firstVerts)
+			alloc.writeS32(fv);
+
+		alloc.writeS32(numVerts.length);
+		for (nv in numVerts)
+			alloc.writeS32(nv);
+
+		alloc.writeS32(firstTVerts.length);
+		for (ftv in firstTVerts)
+			alloc.writeS32(ftv);
+
+		alloc.writeS32(alwaysWriteDepth ? 1 : 0);
+
+		alloc.guard();
+	}
+
 	public function write(alloc:DtsWriteAlloc, version:Int) {
 		// The dispatch word is the mesh-type enum; the trailing "type" field
 		// (flags) is written separately at the end of the standard body.
@@ -280,6 +378,8 @@ class Mesh {
 			writeStandard(alloc, version);
 		else if (meshType == 1)
 			writeSkinned(alloc, version);
+		else if (meshType == 3)
+			writeSorted(alloc, version);
 		else
 			throw new Exception("idk how to write this");
 	}

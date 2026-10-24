@@ -414,12 +414,11 @@ class DtsFile {
 		ar.guard();
 
 		subshapes = [];
+
 		for (i in 0...numSubShapes) {
 			subshapes.push(new SubShape(0, 0, 0, 0, 0, 0));
-		}
-
-		for (i in 0...numSubShapes)
 			subshapes[i].firstNode = ar.readS32();
+		}
 		for (i in 0...numSubShapes)
 			subshapes[i].firstObject = ar.readS32();
 		for (i in 0...numSubShapes)
